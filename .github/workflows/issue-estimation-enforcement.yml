@@ -1,0 +1,84 @@
+name: Enforce Issue Estimation
+on:
+  issues:
+    types:
+      - closed
+jobs:
+  dump_contexts_to_log:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Dump GitHub context
+        id: github_context_step
+        run: echo '${{ toJSON(github) }}'
+      - name: Dump Input context
+        run: echo '${{ toJSON(inputs) }}'
+      - name: Dump job context
+        run: echo '${{ toJSON(job) }}'
+      - name: Dump steps context
+        run: echo '${{ toJSON(steps) }}'
+      - name: Dump runner context
+        run: echo '${{ toJSON(runner) }}'
+      - name: Dump strategy context
+        run: echo '${{ toJSON(strategy) }}'
+      - name: Dump matrix context
+        run: echo '${{ toJSON(matrix) }}'
+  add-comment:
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+    steps:
+      - name: Check GitHub Issue type
+        id: github_issue_type
+        uses: actions/github-script@v2.0.0
+        with:
+          result-encoding: string
+          script: |
+            // An Issue can be a pull request, you can identify pull requests by the pull_request key
+            const pullRequest = ${{ toJson(github.event.issue.pull_request) }}
+            if(pullRequest) {
+              return "pull-request"
+            } else {
+              return "issue"
+            }
+
+      - name: Check if GitHub Issue has no-estimation-needed label
+        id: github_issue_has_no_estimation_needed_issue_label
+        uses: actions/github-script@v2.0.0
+        env:
+          DETECTED_ISSUE_LABEL: 'no-estimation-needed'
+        with:
+          result-encoding: string
+          script: |
+            const labels = ${{ toJson(github.event.issue.labels) }}
+            if(labels.find(label => label.name == process.env.DETECTED_ISSUE_LABEL)) {
+              return "true"
+            } else {
+              return "false"
+            }
+            
+      - name: Check if GitHub Issue has estimation on title
+        id: github_issue_has_estimation_on_title
+        uses: actions/github-script@v2.0.0
+        with:
+          result-encoding: string
+          script: |
+            const title = ${{ toJson(github.event.issue.title) }}
+            const estimation_regexp = /\{[0-9]{1,5}\}/
+            
+            if(title.match(estimation_regexp)) {
+              return "true"
+            } else {
+              return "false"
+            }
+          
+      - name: Dump STEPS context
+        id: steps_context_step
+        run: echo '${{ toJSON(steps) }}'
+
+      - name: Add estimation enforcement comment
+        if: steps.github_issue_has_estimation_on_title.outputs.result == 'false' && steps.github_issue_type.outputs.result == 'issue' && steps.github_issue_has_no_estimation_needed_issue_label.outputs.result == 'false'
+        uses: intellum/create-or-update-comment@a35cf36e5301d70b76f316e867e7788a55a31dae
+        with:
+          issue-number: ${{ github.event.issue.number }}
+          body: |
+            This issue has been closed without any estimation in the title on the form `{<fibo estimation number>}` nor the `no-estimation-needed` label. Please add one of those to help us track the team velocity, Thanks 😊 
